@@ -20,13 +20,34 @@ async function noticias(q, dias) {
   const r = await fetch(url, { headers: { "user-agent": "Mozilla/5.0" } });
   if (!r.ok) throw new Error("Google News respondeu " + r.status);
   const xml = await r.text();
-  return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)].slice(0, 30).map((m) => {
+  return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)].slice(0, 50).map((m) => {
     const fonte = tag(m[1], "source");
     let titulo = tag(m[1], "title");
     if (fonte && titulo.endsWith(" - " + fonte)) titulo = titulo.slice(0, -(fonte.length + 3));
     return { titulo, fonte, link: tag(m[1], "link"), data: tag(m[1], "pubDate") };
   }).filter((n) => n.titulo && /^https?:\/\//.test(n.link))
-    .sort((a, b) => new Date(b.data) - new Date(a.data)).slice(0, 20);
+    .sort((a, b) => new Date(b.data) - new Date(a.data)).slice(0, 40);
+}
+
+// Bing Notícias (RSS): costuma trazer a foto da matéria em <News:Image>.
+function limpaImg(s) {
+  if (!s) return "";
+  let u = s.trim();
+  const m = u.match(/[?&]q=([^&]+)/);
+  if (/imagenewsfetcher/i.test(u) && m) { try { u = decodeURIComponent(m[1]); } catch (e) {} }
+  if (u.startsWith("//")) u = "https:" + u; else if (!/^https?:/i.test(u)) u = "https://" + u.replace(/^\/+/, "");
+  return u.replace(/^http:/i, "https:");
+}
+
+async function bing(q) {
+  const r = await fetch("https://www.bing.com/news/search?q=" + encodeURIComponent(q) + "&format=rss&setlang=pt-BR&cc=BR", { headers: { "user-agent": "Mozilla/5.0" } });
+  if (!r.ok) throw new Error("Bing respondeu " + r.status);
+  const xml = await r.text();
+  return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)].slice(0, 30).map((m) => {
+    let link = tag(m[1], "link");
+    try { const u = new URL(link).searchParams.get("url"); if (u) link = u; } catch (e) {}
+    return { titulo: tag(m[1], "title"), fonte: tag(m[1], "News:Source"), link, data: tag(m[1], "pubDate"), imagem: limpaImg(tag(m[1], "News:Image")) };
+  }).filter((n) => n.titulo && /^https?:\/\//.test(n.link));
 }
 
 async function fd(path) {
@@ -64,9 +85,11 @@ exports.handler = async (event) => {
   try {
     if (p.tipo === "noticias") {
       const q = (p.q || "futebol brasileiro").slice(0, 80);
-      let lista = await noticias(q, 1);
-      if (lista.length < 4) lista = await noticias(q, 3);
-      corpo = { noticias: lista };
+      const [g, b] = await Promise.allSettled([noticias(q, 1), bing(q)]);
+      let lista = [...(g.value || []), ...(b.value || [])];
+      if (lista.length < 4 && g.status === "fulfilled") { try { lista = lista.concat(await noticias(q, 3)); } catch (e) {} }
+      if (!lista.length && g.status === "rejected" && b.status === "rejected") throw g.reason;
+      corpo = { noticias: lista.slice(0, 80) };
     } else if (p.tipo === "tabela") {
       const d = await fd(`/competitions/${comp}/standings`);
       const total = d.standings.find((s) => s.type === "TOTAL") || d.standings[0];

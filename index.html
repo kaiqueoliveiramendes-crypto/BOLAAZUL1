@@ -12,9 +12,9 @@
 <style>
 :root{--blue:#0b3aa8;--navy:#06236b;--paper:#f7f7ff;--ink:#14182b;--muted:#6b7390;--line:#dfe3f2;--accent:#19c26b;--red:#e5484d}
 *{box-sizing:border-box}
-body{margin:0;background:var(--navy) linear-gradient(180deg,var(--blue),var(--navy)) fixed;font:15px/1.5 Roboto,system-ui,"Segoe UI",Arial,sans-serif;color:var(--ink)}
+body{margin:0;background:#fff;font:15px/1.5 Roboto,system-ui,"Segoe UI",Arial,sans-serif;color:var(--ink)}
 a{color:inherit;text-decoration:none}
-.page{max-width:1160px;margin:16px auto;background:var(--paper);box-shadow:0 10px 40px rgba(0,0,0,.35)}
+.page{max-width:1160px;margin:0 auto;background:#fff}
 .topbar{display:flex;justify-content:space-between;align-items:center;gap:12px;background:#fff;border-bottom:1px solid var(--line);padding:0 16px;font-size:12px;font-weight:700;text-transform:uppercase}
 .topbar ul{display:flex;list-style:none;margin:0;padding:0}.topbar li a{display:block;padding:10px 14px}.topbar li a:hover{color:var(--blue)}
 .topbar .dt{color:var(--muted);font-weight:500;text-transform:none}
@@ -185,9 +185,29 @@ const RSS=(q,d)=>"https://news.google.com/rss/search?q="+encodeURIComponent(q+" 
 const PROXIES=[u=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u),u=>"https://corsproxy.io/?"+encodeURIComponent(u)];
 const dec=s=>s.replace(/<!\[CDATA\[|\]\]>/g,"").replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&#39;/g,"'").trim();
 const tg=(x,n)=>{const m=x.match(new RegExp("<"+n+"[^>]*>([\\s\\S]*?)</"+n+">"));return m?dec(m[1]):""};
-function parseRSS(xml){return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)].slice(0,30).map(m=>{const f=tg(m[1],"source");let t=tg(m[1],"title");if(f&&t.endsWith(" - "+f))t=t.slice(0,-(f.length+3));return{titulo:t,fonte:f,link:tg(m[1],"link"),data:tg(m[1],"pubDate")}}).filter(n=>n.titulo&&/^https?:\/\//.test(n.link)).sort((a,b)=>new Date(b.data)-new Date(a.data)).slice(0,20)}
-async function viaProxy(q){for(const d of [1,3])for(const p of PROXIES){try{const r=await fetch(p(RSS(q,d)));if(!r.ok)continue;const l=parseRSS(await r.text());if(l.length>=(d===1?4:1))return l}catch(e){}}throw new Error("proxy")}
-async function getNews(q){try{return(await api("noticias",{q})).noticias}catch(e){try{return await viaProxy(q)}catch(e2){throw new Error("Não foi possível buscar as manchetes agora. Se você abriu o arquivo direto no computador, publique o site no Netlify (veja o README). Se já publicou, abra /.netlify/functions/dados?tipo=noticias no seu site para ver o erro. Detalhe: "+e.message)}}}
+const fixImg=s=>{if(!s)return"";let u=s.trim();const m=u.match(/[?&]q=([^&]+)/);if(/imagenewsfetcher/i.test(u)&&m){try{u=decodeURIComponent(m[1])}catch(e){}}if(u.startsWith("//"))u="https:"+u;else if(!/^https?:/i.test(u))u="https://"+u.replace(/^\/+/,"");return u.replace(/^http:/i,"https:")};
+function parseItems(xml){return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)].slice(0,40).map(m=>{const b=m[1];let f=tg(b,"source")||tg(b,"News:Source"),t=tg(b,"title"),l=tg(b,"link");if(f&&t.endsWith(" - "+f))t=t.slice(0,-(f.length+3));
+ try{const u=new URL(l).searchParams.get("url");if(u)l=u}catch(e){}
+ return{titulo:t,fonte:f,link:l,data:tg(b,"pubDate"),imagem:fixImg(tg(b,"News:Image"))}}).filter(n=>n.titulo&&/^https?:\/\//.test(n.link))}
+async function viaProxy(q){const bing="https://www.bing.com/news/search?q="+encodeURIComponent(q)+"&format=rss&setlang=pt-BR&cc=BR",out=[];
+ const get=async u=>{for(const p of PROXIES){try{const r=await fetch(p(u));if(!r.ok)continue;return parseItems(await r.text())}catch(e){}}return[]};
+ out.push(...await get(RSS(q,1)),...await get(bing));if(out.length<4)out.push(...await get(RSS(q,3)));
+ if(!out.length)throw new Error("proxy");return out}
+const STOP=new Set("de da do das dos para por com uma que mais como sobre apos entre contra pelo pela ate nos nas aos seu sua foi vai tem ser nao veja confira ver tudo hoje ontem".split(" "));
+const tk=t=>new Set(String(t).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9 ]/g," ").split(/\s+/).filter(w=>w.length>2&&!STOP.has(w)));
+const jac=(a,b)=>{let i=0;a.forEach(x=>{if(b.has(x))i++});return i/(a.size+b.size-i||1)};
+const KEYS=[[/\b(final|campe[aã]o|campeã|t[ií]tulo|elimina\w*|rebaix\w*|demit\w*|demiss\w*|morre\w*)\b/i,3],[/\b(lidera\w*|classific\w*|virada|goleada|les[aã]o|contrata\w*|sele[cç][aã]o|libertadores|decis[aã]o|expuls\w*|p[eê]nalti\w*)\b/i,2]];
+const SRC=/^(ge|globo|lance|espn|uol|cnn|gazeta|folha|estad|terra|placar|trivela|band|sportv|metr)/i;
+// Tira o que é antigo, agrupa a mesma notícia de vários veículos e ordena por importância + data
+function rankNews(items){const now=Date.now(),H=36e5;let l=items.filter(n=>n.data&&!isNaN(new Date(n.data)));
+ const w=[48,96].find(x=>l.filter(n=>now-new Date(n.data)<=x*H).length>=4);if(w)l=l.filter(n=>now-new Date(n.data)<=w*H);
+ const cl=[];l.forEach(n=>{n._t=tk(n.titulo);const c=cl.find(c=>c.m.some(x=>jac(x._t,n._t)>=.34));if(c)c.m.push(n);else cl.push({t:n._t,m:[n]})});
+ return cl.map(c=>{const m=c.m.slice().sort((a,b)=>(!!b.imagem-!!a.imagem)||new Date(b.data)-new Date(a.data)),r=Object.assign({},m[0]);
+  if(!r.imagem){const x=m.find(y=>y.imagem);if(x)r.imagem=x.imagem}
+  const novo=Math.max.apply(null,m.map(x=>+new Date(x.data))),idade=Math.max(0,(now-novo)/H),fontes=new Set(m.map(x=>x.fonte)).size;
+  r.data=new Date(novo).toUTCString();r.cobertura=fontes;
+  r.score=fontes*4+KEYS.reduce((s,[re,wt])=>re.test(r.titulo)?s+wt:s,0)+Math.max(0,24-idade)*.5+(r.imagem?1:0)+(SRC.test(r.fonte||"")?1.5:0);return r}).sort((a,b)=>b.score-a.score).slice(0,24)}
+async function getNews(q){let l;try{l=(await api("noticias",{q})).noticias}catch(e){try{l=await viaProxy(q)}catch(e2){throw new Error("Não foi possível buscar as manchetes agora. Se você abriu o arquivo direto no computador, publique o site no Netlify (veja o README). Se já publicou, abra /.netlify/functions/dados?tipo=noticias no seu site para ver o erro. Detalhe: "+e.message)}}return rankNews(l)}
 const ago=d=>{const m=Math.round((Date.now()-new Date(d))/6e4);return m<1?"agora":m<60?"há "+m+" min":m<1440?"há "+Math.round(m/60)+" h":"há "+Math.round(m/1440)+" d"};
 const hhmm=()=>new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
 const fail=(el,e)=>{el.innerHTML='<div class="note">Não foi possível carregar: '+esc(e.message)+'</div>'};
@@ -195,7 +215,8 @@ const LAB=[[/libertadores/i,"Libertadores"],[/sul-?americana|sudamericana/i,"Sul
 const lab=t=>(LAB.find(([r])=>r.test(t))||[0,comp==="Todas"?"Futebol":comp])[1];
 function banner(t){const hit=TAB.filter(x=>t.toLowerCase().includes(String(x.time).toLowerCase())).slice(0,2);
  return '<div class="ban" aria-hidden="true">'+(hit.map(x=>x.escudo?'<img src="'+esc(x.escudo)+'" alt="" loading="lazy" onerror="this.remove()">':crF(x.tla)).join("")||"⚽")+'</div>'}
-const card=n=>'<a class="post" href="'+esc(n.link)+'" target="_blank" rel="noopener noreferrer"><div class="thumb">'+banner(n.titulo)+'<span class="lab">'+esc(lab(n.titulo))+'</span></div><h2>'+esc(n.titulo)+'</h2><time datetime="'+esc(n.data)+'">'+bl(n.data)+'</time><span class="src">'+esc(n.fonte)+' · '+ago(n.data)+'</span></a>';
+const thumb=n=>okUrl(n.imagem)?'<img class="pic" src="'+esc(n.imagem)+'" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.outerHTML=this.dataset.f" data-f="'+esc(banner(n.titulo))+'">':banner(n.titulo);
+const card=n=>'<a class="post" href="'+esc(n.link)+'" target="_blank" rel="noopener noreferrer"><div class="thumb">'+thumb(n)+'<span class="lab">'+esc(lab(n.titulo))+'</span></div><h2>'+esc(n.titulo)+'</h2><time datetime="'+esc(n.data)+'">'+bl(n.data)+'</time><span class="src">'+esc(n.fonte)+' · '+ago(n.data)+(n.cobertura>1?' · '+n.cobertura+' veículos':'')+'</span></a>';
 const cards=l=>l.length?l.map(card).join(""):'<div class="empty">Sem manchetes das últimas horas para este assunto.</div>';
 function paint(){$("news").innerHTML=cards(LIST.slice(0,shown));$("more").hidden=shown>=LIST.length}
 async function loadNews(){$("sech").textContent=comp==="Todas"?"Últimas notícias":comp;try{LIST=await getNews(COMP[comp]);shown=9;paint()}catch(e){fail($("news"),e)}}
@@ -224,7 +245,7 @@ async function loadTeam(){const t=TAB.find(x=>x.time===team);if(!t){$("tp").inne
  +'<div class="tg"><div><h3>Notícias do time</h3><div class="feed" id="tn" style="grid-template-columns:1fr">carregando…</div></div><div><h3>Artilheiros do time</h3>'+(mine.length?rank([...mine].sort((a,b)=>b.gols-a.gols),"gols"):'<div class="note">Nenhum jogador do clube entre os 50 maiores artilheiros.</div>')
  +'<h3 style="margin-top:14px">Assistências</h3>'+(mine.some(a=>a.assist>0)?rank([...mine].filter(a=>a.assist>0).sort((a,b)=>b.assist-a.assist),"assist"):'<div class="note">Sem assistências registradas.</div>')+'</div></div>';
  const mine2=l=>l.some(x=>x.toLowerCase()===team.toLowerCase()||(codeOf(x)&&codeOf(x)===codeOf(team)));
- const ed=POSTS.length?POSTS.map((p,i)=>mine2(p.labels||[])?postCard(i):"").join(""):FIXO.stories.map((n,i)=>(n.tm||[]).includes(codeOf(team))?storyCard(i):"").join("");
+ const ed=POSTS.length?POSTS.map((p,i)=>mine2(p.labels||[])?postCard(i):"").join(""):(fresco()?FIXO.stories.map((n,i)=>(n.tm||[]).includes(codeOf(team))?storyCard(i):"").join(""):"");
  try{const l=await getNews(team+" futebol");$("tn").innerHTML=ed+cards(l.slice(0,6))}catch(e){$("tn").innerHTML=ed;if(!ed)fail($("tn"),e)}}
 async function all(manual){const b=$("rl"),st=$("st");b.disabled=true;b.classList.add("ld");st.textContent="Atualizando…";
  await Promise.all([loadTable(),loadGames(),loadScorers(),loadPosts()]);await Promise.all([loadNews(),loadTeam()]);
@@ -255,7 +276,7 @@ function art(cd,cup,alt){cd=(cd||[]).filter(c=>T[c]).slice(0,2);let s='<svg clas
  return s+'<text x="392" y="174" text-anchor="end" font-size="10" fill="#fff" fill-opacity=".75" font-family="Roboto,Arial,sans-serif">Ilustração</text></svg>'}
 const CUP=["Libertadores","Sul-Americana","Copa do Brasil"];
 const storyCard=i=>{const n=FIXO.stories[i];return '<a class="post" href="#" role="button" data-s="'+i+'"><div class="thumb">'+art(n.tm,CUP.includes(n.k),"Ilustração: "+n.t)+'<span class="lab">'+esc(n.k)+'</span></div><h2>'+esc(n.t)+'</h2><time>Redação · '+esc(FIXO.data)+'</time><span class="src">'+esc(n.s)+'</span></a>'};
-function paintDest(){if(POSTS.length)return paintPosts();$("desth").textContent="Destaques da redação";const h=FIXO.hero,show=comp==="Todas"||comp===h.k;
+function paintDest(){if(POSTS.length)return paintPosts();if(!fresco()){$("dest").hidden=true;return}$("desth").textContent="Destaques da redação";const h=FIXO.hero,show=comp==="Todas"||comp===h.k;
  $("hero").innerHTML=show?'<a class="hero2" href="#" role="button" data-h="1">'+art(h.tm,CUP.includes(h.k),"Ilustração: "+h.t)+'<div><span class="lab">'+esc(h.k)+'</span><h2>'+esc(h.t)+'</h2><p>'+esc(h.s)+'</p></div></a>':"";
  const l=FIXO.stories.map((n,i)=>[n,i]).filter(([n])=>comp==="Todas"||n.k===comp);
  $("destf").innerHTML=l.map(([n,i])=>storyCard(i)).join("");$("destd").textContent="Matérias da redação de "+FIXO.data;$("dest").hidden=!show&&!l.length}
@@ -288,7 +309,9 @@ function paintPosts(){const f=norm(comp),l=POSTS.map((p,i)=>[p,i]).filter(([p])=
  $("desth").textContent=comp==="Todas"?"Matérias":"Matérias · "+comp;
  $("hero").innerHTML=h?'<a class="hero2" href="#" role="button" data-p="'+h[1]+'">'+postImg(h[0])+'<div><span class="lab">'+esc(plabel(h[0]))+'</span><h2>'+esc(h[0].titulo)+'</h2><p>'+esc(h[0].resumo)+'</p></div></a>':"";
  $("destf").innerHTML=l.slice(1).map(([p,i])=>postCard(i)).join("");$("destd").textContent="";$("dest").hidden=!l.length}
-async function loadPosts(){try{POSTS=((await api("materias")).materias||[]).filter(p=>p.titulo)}catch(e){POSTS=[]}paintDest()}
+async function loadPosts(){try{const d=await api("materias"),lim=7*864e5,now=Date.now(),dest=p=>(p.labels||[]).some(x=>/^(destaque|manchete)$/i.test(x));
+ POSTS=(d.materias||[]).filter(p=>p.titulo&&(!p.data||now-new Date(p.data)<=lim)).sort((a,b)=>dest(b)-dest(a)||new Date(b.data)-new Date(a.data))}catch(e){POSTS=[]}paintDest()}
+function fresco(){return Date.now()-new Date(FIXO.dataISO+"T12:00:00")<=2.5*864e5}
 function abrirPost(i){const p=POSTS[i];last=document.activeElement;$("dk").textContent=plabel(p);$("dt").textContent=p.titulo;
  $("db").innerHTML='<p class="note" style="padding:12px 0 0">'+bl(p.data)+'</p><div class="post-body">'+limpa(p.html)+'</div>'+(okUrl(p.link)?'<p><a href="'+esc(p.link)+'" target="_blank" rel="noopener noreferrer">Ver no Blogger</a></p>':'');
  $("ov").classList.add("on");$("x").focus()}
