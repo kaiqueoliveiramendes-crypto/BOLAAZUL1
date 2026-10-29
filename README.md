@@ -1,4 +1,4 @@
-# Bola Azul — site com notícias do dia
+# Voz do Povo Esportes — site com notícias do dia
 
 O site busca as manchetes do dia **toda vez que a página abre e a cada clique em "Recarregar notícias"**.
 Ele precisa de hospedagem com função de servidor. O passo a passo abaixo usa o Netlify (grátis).
@@ -43,3 +43,15 @@ Se aparecer `{"erro": ...}`, a mensagem diz o que falta.
 - **Não abra o `index.html` com duplo clique.** A função de servidor só existe no site publicado. Mesmo assim, o site tenta buscar as manchetes por um serviço público alternativo; se ele estiver fora do ar, aparece o aviso.
 - Se publicou no Netlify e ainda dá erro, abra `https://SEU-SITE.netlify.app/.netlify/functions/dados?tipo=noticias`. A mensagem que aparecer ali diz o que está errado (me envie, se precisar).
 - Confira se a pasta `netlify/functions/dados.js` foi enviada ao GitHub com esse caminho exato.
+
+## Criar matérias com o Blogger do Google
+O site mostra as matérias que você escrever num blog do Blogger, sem precisar mexer em código.
+1. Acesse https://www.blogger.com com sua conta Google e clique em **Criar blog**. Nome: Voz do Povo Esportes. Escolha o endereço (por exemplo `vozdopovoesportes.blogspot.com`).
+2. No blog, abra **Configurações → Feed do site** e escolha **Completo** (assim o texto inteiro chega ao site).
+3. Clique em **Nova postagem**: escreva o título e o texto, adicione fotos pelo botão de imagem, e em **Marcadores** coloque o assunto, por exemplo `Brasileirão`, `Libertadores`, `Copa do Brasil`, `Sul-Americana`, `Série B` ou o nome do time (`Palmeiras`). Clique em **Publicar**.
+4. No Netlify: **Site configuration → Environment variables → Add a variable**. Nome: `BLOGGER_URL`. Valor: o endereço do blog com https, por exemplo `https://vozdopovoesportes.blogspot.com`. Faça um novo deploy.
+5. Pronto: as matérias aparecem em **Matérias** no topo do site, e abrem dentro do próprio site ao clicar. O marcador com o nome de um campeonato filtra pelo menu, e o marcador com o nome de um time coloca a matéria no painel desse time.
+Enquanto o blog não tiver matérias (ou a variável não existir), o site mostra os "Destaques da redação" salvos.
+
+## Como atualizar os arquivos no GitHub
+Abra o repositório, entre na pasta do arquivo, clique em **Add file → Upload files**, envie o arquivo novo (mesmo nome) e confirme com **Commit changes**. O Netlify publica sozinho em alguns segundos. Para `dados.js`, entre antes em `netlify/functions`.
