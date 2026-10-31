@@ -78,6 +78,41 @@ async function materias(label) {
   }) };
 }
 
+// Resumos automáticos de jogos: texto original, montado só com fatos (placar, rodada, tabela) vindos da API.
+const escH = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+async function resumos() {
+  const hoje = new Date();
+  const de = dia(new Date(hoje.getTime() - 3 * 864e5)), ate = dia(hoje);
+  const [st, mt] = await Promise.all([fd("/competitions/BSA/standings"),
+    fd(`/competitions/BSA/matches?status=FINISHED&dateFrom=${de}&dateTo=${ate}`)]);
+  const total = st.standings.find((s) => s.type === "TOTAL") || st.standings[0];
+  const tab = {}; total.table.forEach((t) => { tab[t.team.id] = t; });
+  const nome = (t) => t.shortName || t.name;
+  const quando = (iso) => { try { return new Date(iso).toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "2-digit", timeZone: "America/Sao_Paulo" }); } catch (e) { return iso.slice(0, 10); } };
+  const lista = (mt.matches || []).filter((m) => m.score && m.score.fullTime && m.score.fullTime.home != null && m.score.fullTime.away != null).map((m) => {
+    const h = nome(m.homeTeam), a = nome(m.awayTeam), gh = m.score.fullTime.home, ga = m.score.fullTime.away;
+    const th = tab[m.homeTeam.id], ta = tab[m.awayTeam.id];
+    let titulo, resultado;
+    if (gh === ga) {
+      titulo = gh === 0 ? `${h} e ${a} empatam sem gols` : `${h} e ${a} empatam em ${gh} a ${ga}`;
+      resultado = gh === 0 ? "A partida terminou empatada, sem gols." : `A partida terminou empatada em ${gh} a ${ga}.`;
+    } else {
+      const venc = gh > ga ? h : a, perd = gh > ga ? a : h, gv = Math.max(gh, ga), gp = Math.min(gh, ga);
+      titulo = `${venc} ${gv - gp >= 3 ? "goleia" : "vence"} ${perd} por ${gv} a ${gp}`;
+      resultado = `${venc} venceu por ${gv} a ${gp}.`;
+    }
+    const ps = [`Pela ${m.matchday}ª rodada do Campeonato Brasileiro Série A, ${h} e ${a} se enfrentaram em ${quando(m.utcDate)}. ${resultado}`];
+    if (th && ta) ps.push(`Na tabela atual, o ${h} tem ${th.points} pontos e ocupa a ${th.position}ª posição; o ${a} soma ${ta.points} pontos, na ${ta.position}ª colocação.`);
+    ps.push("Resumo gerado automaticamente a partir de dados do football-data.org.");
+    const melhor = th && ta ? Math.min(th.position, ta.position) : 20;
+    const peso = (21 - melhor) + (Math.abs(gh - ga) >= 3 ? 3 : 0) + (gh + ga >= 5 ? 2 : 0) + (th && ta && th.position <= 4 && ta.position <= 4 ? 5 : 0);
+    return { titulo, data: m.utcDate, link: "", labels: ["Resumo do jogo", "Brasileirão", h, a], imagem: "",
+      escudos: [m.homeTeam.crest, m.awayTeam.crest].filter(Boolean), resumo: ps[0],
+      html: ps.map((p) => `<p>${escH(p)}</p>`).join(""), peso };
+  });
+  return lista.sort((x, y) => (y.data.slice(0, 10).localeCompare(x.data.slice(0, 10))) || y.peso - x.peso).slice(0, 12);
+}
+
 exports.handler = async (event) => {
   const p = event.queryStringParameters || {};
   const comp = COMPS[p.comp] || "BSA";
@@ -107,10 +142,12 @@ exports.handler = async (event) => {
       corpo = { jogos: d.matches.map((m) => ({ data: m.utcDate, status: m.status,
         casa: m.homeTeam.shortName || m.homeTeam.name, fora: m.awayTeam.shortName || m.awayTeam.name,
         gc: m.score.fullTime.home, gf: m.score.fullTime.away })) };
+    } else if (p.tipo === "resumos") {
+      corpo = { materias: await resumos() };
     } else if (p.tipo === "materias") {
       corpo = await materias((p.label || "").slice(0, 60));
     } else {
-      return { statusCode: 400, body: JSON.stringify({ erro: "Use ?tipo=noticias|tabela|artilharia|jogos|materias" }) };
+      return { statusCode: 400, body: JSON.stringify({ erro: "Use ?tipo=noticias|tabela|artilharia|jogos|materias|resumos" }) };
     }
     corpo.atualizadoEm = new Date().toISOString();
     return { statusCode: 200, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "public, max-age=120" }, body: JSON.stringify(corpo) };
